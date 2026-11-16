@@ -20,7 +20,7 @@
 
 What changed from v1:
 - **Faces always in frame:** people shots use YuNet face detection (`models/yunet.onnx`). The virtual camera follows the smoothed face track and puts the face on the upper-third line. Exposure is also set from the face so it's well lit.
-- **Music sync:** cuts land on beats and kicks. Every kick adds a small zoom pulse and brightness lift, and the drops add camera shake and a gold flash.
+- **Music sync:** cuts land on beats and kicks. Every kick adds a small zoom pulse (brightness stays constant), and the drops add camera shake and a soft gold flash.
 - **Modern typography:** Bebas Neue (gold gradient) and Outfit (light, wide tracking), with wipe reveals, frosted caption pills and gold rules.
 - **Even tone (shot matching):** every frame is measured in LAB colour space and normalised to the same targets: brightness 47, contrast spread 76, neutral colour balance and saturation 0.46. Exposure is anchored on the face when there is one. Corrections are smoothed over about 0.25 s so nothing flickers. A gentle local tone map (CLAHE at 22%) evens out bright windows against darker faces, highlights roll off softly so nothing clips, and the vignette is kept very light so brightness is even across the frame.
 - **Look on top:** filmic S-curve with rich blacks, warm-gold highlights and slightly cool shadows, and skin-safe saturation, with subtle bloom and fine grain.
