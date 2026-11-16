@@ -320,7 +320,7 @@ def scrim(dst, cy, hgt, amt):
     y0, y1 = int(max(0, cy - hgt)), int(min(H, cy + hgt))
     yy = (np.arange(y0, y1) - cy) / hgt
     m = (np.cos(np.clip(yy, -1, 1) * np.pi) * 0.5 + 0.5)[:, None, None] * amt
-    dst[y0:y1] *= 1 - 0.5 * m
+    dst[y0:y1] *= 1 - 0.32 * m
 
 
 # ------------------------------------------------------------------- particles
@@ -435,7 +435,7 @@ def build_look():
     sm = x * x * (3 - 2 * x)
     c = 0.62 * x + 0.38 * sm
     c = np.where(c > 0.8, 0.8 + (c - 0.8) * (1 - 0.35 * ((c - 0.8) / 0.2)), c)
-    c = 0.015 + c * 0.975  # slightly lifted, rich blacks
+    c = 0.004 + c * 0.99  # rich blacks
     sh = np.clip(1 - x / 0.45, 0, 1) ** 2
     hi = np.clip((x - 0.45) / 0.55, 0, 1) ** 1.5
     b = c + 0.035 * sh - 0.05 * hi        # cool-teal shadows, warm highlights
@@ -447,72 +447,85 @@ def build_look():
 LOOK = build_look()
 _vy = np.linspace(-1, 1, H)[:, None]
 _vx = np.linspace(-1, 1, W)[None, :] * 0.9
-VIG = (1 - 0.28 * np.clip((np.sqrt(_vx ** 2 + (_vy * 0.9) ** 2) - 0.55) / 0.85, 0, 1) ** 1.6)[..., None].astype(
+VIG = (1 - 0.10 * np.clip((np.sqrt(_vx ** 2 + (_vy * 0.9) ** 2) - 0.55) / 0.85, 0, 1) ** 1.6)[..., None].astype(
     np.float32)
 # hue-selective saturation (OpenCV hue 0..180): skin (5..25) gently, decor colours strongly
 _h = np.arange(180)
 _skin = np.exp(-((_h - 14) / 9.0) ** 2)
-SAT_GAIN = (1.32 - 0.24 * _skin).astype(np.float32)
+SAT_GAIN = (1.18 - 0.12 * _skin).astype(np.float32)
+SKIN = _skin.astype(np.float32)
 
 
-def shot_correction(img_small, face=None):
-    """per-shot WB gains + exposure gamma + black/white points from a downscaled frame.
-    face = (fx, fy, fh) normalised; when given, exposure is set so the face is well lit."""
-    f = img_small.astype(np.float32) / 255
-    lum = f.mean(2)
-    m = (lum > 0.08) & (lum < 0.92)
-    means = f[m].mean(0) if m.sum() > 100 else f.reshape(-1, 3).mean(0)
-    gray = means.mean()
-    gains = np.clip((gray / means) ** 0.55, 0.88, 1.15)
-    # keep a little warmth: don't fully neutralise red
-    gains[2] = max(gains[2], 0.96)
-    lo = np.percentile(lum, 0.7)
-    hi = np.percentile(lum, 99.6)
-    med = np.median(lum)
-    lo = min(lo, 0.08)
-    hi = max(hi, 0.85)
-    medn = (med - lo) / (hi - lo)
-    gamma = float(np.clip(math.log(0.50) / math.log(max(medn, 0.05)), 0.62, 1.2))
-    if face is not None:
-        hh_, ww_ = lum.shape
-        fx, fy, fh = face
-        x0, x1 = int((fx - fh * 0.3) * ww_ * 16 / 9 / 1), int((fx + fh * 0.3) * ww_ * 16 / 9)
-        cxp, cyp, r = fx * ww_, fy * hh_, fh * hh_ * 0.35
-        reg = lum[int(max(0, cyp - r)):int(cyp + r), int(max(0, cxp - r)):int(cxp + r)]
-        if reg.size > 20:
-            fn = (np.median(reg) - lo) / (hi - lo)
-            fg = float(np.clip(math.log(0.52) / math.log(max(fn, 0.05)), 0.55, 1.15))
-            gamma = 0.35 * gamma + 0.65 * fg
-    return gains.astype(np.float32), float(lo), float(hi), gamma
+# --- shot matching: every frame is normalised to the same targets (smoothed over time) ---
+TGT_L, TGT_SPREAD, TGT_A, TGT_B, TGT_SAT, TGT_FACE_L = 47.0, 76.0, 1.5, 6.0, 0.46, 50.0
+CLAHE = cv2.createCLAHE(clipLimit=1.6, tileGridSize=(4, 7))
 
 
-def make_shot_lut(gains, lo, hi, gamma):
-    x = np.arange(256) / 255.0
-    luts = []
-    for ch in range(3):
-        v = np.clip((x * gains[ch] - lo) / (hi - lo), 0, 1) ** gamma
-        v = LOOK[ch][np.clip((v * 255).astype(int), 0, 255)]
-        luts.append(v.astype(np.uint8))
-    return luts
+class Tone:
+    def __init__(self):
+        self.st = None
+
+    def update(self, lab_small, hsv_small, face_xy=None):
+        L, A, B = lab_small[:, :, 0], lab_small[:, :, 1], lab_small[:, :, 2]
+        p5, p50, p95 = np.percentile(L, [4, 50, 96])
+        if face_xy is not None:
+            hh_, ww_ = L.shape
+            fx, fy, fr = face_xy
+            reg = L[int(max(0, (fy - fr) * hh_)):int(min(1, fy + fr) * hh_), int(max(0, (fx - fr * 0.56) * ww_)):
+                    int(min(1, fx + fr * 0.56) * ww_)]
+            if reg.size > 30:
+                # exposure anchored on the face (mapped to its own target)
+                p50 = 0.6 * p50 + 0.4 * (np.median(reg) - (TGT_FACE_L - TGT_L))
+        C = np.sqrt(A ** 2 + B ** 2)
+        mid = (L > 15) & (L < 92)
+        neutral = mid & (C < 22)
+        if neutral.sum() > 0.08 * L.size:
+            am, bm, k = A[neutral].mean(), B[neutral].mean(), 0.8
+        else:
+            am, bm, k = A[mid].mean() if mid.any() else 0, B[mid].mean() if mid.any() else 0, 0.5
+        da, db = (am - TGT_A) * k, (bm - TGT_B) * k
+        sm = hsv_small[:, :, 1].mean()
+        new = np.array([p50, max(p95 - p5, 20), da, db, sm], np.float64)
+        self.st = new if self.st is None else self.st * 0.86 + new * 0.14
+        return self.st
 
 
-def grade(img_u8, luts, t):
-    b, g, r = cv2.split(img_u8)
-    img_u8 = cv2.merge([cv2.LUT(b, luts[0]), cv2.LUT(g, luts[1]), cv2.LUT(r, luts[2])])
-    hsv = cv2.cvtColor(img_u8, cv2.COLOR_BGR2HSV)
-    hch = hsv[:, :, 0]
+def tone_match(f, state):
+    """f: float BGR 0..1 (W x H). Returns matched float BGR."""
+    p50, spread, da, db, sm = state
+    lab = cv2.cvtColor(f, cv2.COLOR_BGR2LAB)
+    g = float(np.clip((TGT_SPREAD / spread) ** 0.85, 0.85, 1.45))
+    L = (lab[:, :, 0] - p50) * g + TGT_L
+    # soft toe & shoulder so nothing clips
+    L = np.where(L > 80, 80 + 20 * np.tanh((L - 80) / 20), L)
+    L = np.where(L < 6, 6 * np.exp((L - 6) / 6), L) - 1.5
+    # gentle local tone mapping: evens out bright windows vs. darker faces
+    L8 = np.clip(L * 2.55, 0, 255).astype(np.uint8)
+    Lc = CLAHE.apply(L8).astype(np.float32) / 2.55
+    lab[:, :, 0] = L * 0.78 + Lc * 0.22
+    lab[:, :, 1] -= float(np.clip(da, -18, 18))
+    lab[:, :, 2] -= float(np.clip(db, -22, 22))
+    out = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    return np.clip(out, 0, 1), float(np.clip((TGT_SAT / max(sm, 0.05)) ** 0.8, 0.8, 1.55))
+
+
+def grade(img_u8, tone, t, face_xy=None):
+    small = cv2.resize(img_u8, (135, 240), interpolation=cv2.INTER_AREA).astype(np.float32) / 255
+    st = tone.update(cv2.cvtColor(small, cv2.COLOR_BGR2LAB), cv2.cvtColor(small, cv2.COLOR_BGR2HSV), face_xy)
+    f, sgain = tone_match(img_u8.astype(np.float32) / 255, st)
+    u8 = (f * 255 + 0.5).astype(np.uint8)
+    b, g, r = cv2.split(u8)
+    u8 = cv2.merge([cv2.LUT(b, LOOK[0]), cv2.LUT(g, LOOK[1]), cv2.LUT(r, LOOK[2])])
+    hsv = cv2.cvtColor(u8, cv2.COLOR_BGR2HSV)
     s = hsv[:, :, 1].astype(np.float32) / 255
-    gain = SAT_GAIN[hch]
-    s = np.clip(s * gain + 0.10 * s * (1 - s), 0, 1)
-    hsv[:, :, 1] = (s * 255).astype(np.uint8)
+    gain = 1 + (sgain * SAT_GAIN[hsv[:, :, 0]] - 1) * (1 - 0.45 * SKIN[hsv[:, :, 0]])
+    hsv[:, :, 1] = (np.clip(s * gain, 0, 1) * 255).astype(np.uint8)
     f = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR).astype(np.float32) / 255
-    # warm bloom / halation
     small = cv2.resize(f, (W // 4, H // 4), interpolation=cv2.INTER_AREA)
-    br = cv2.GaussianBlur(np.clip(small - 0.68, 0, 1), (0, 0), 6)
-    f += cv2.resize(br, (W, H)) * np.array([0.45, 0.75, 1.0], np.float32) * 0.85
+    br = cv2.GaussianBlur(np.clip(small - 0.82, 0, 1), (0, 0), 6)
+    f += cv2.resize(br, (W, H)) * np.array([0.45, 0.75, 1.0], np.float32) * 0.3
     f *= VIG
-    # fine film grain
-    gr = np.random.default_rng(int(t * 1000)).normal(0, 0.012, (H // 2, W // 2)).astype(np.float32)
+    gr = np.random.default_rng(int(t * 1000)).normal(0, 0.008, (H // 2, W // 2)).astype(np.float32)
     f += cv2.resize(gr, (W, H), interpolation=cv2.INTER_LINEAR)[..., None]
     return f
 
@@ -556,7 +569,8 @@ class Shot:
     def __init__(self, s):
         self.s = s
         self.proc = None
-        self.luts = None
+        self.tone = Tone()
+        self.face_xy = None
         self.track = None
         self.tracked = False
 
@@ -585,10 +599,6 @@ class Shot:
                 break
             self.cur = np.frombuffer(b, np.uint8).reshape(SRC_H, SRC_W, 3)
             self.idx += 1
-            if self.luts is None:
-                face = tuple(self.track[min(len(self.track) - 1, 10)]) if self.track is not None else None
-                self.luts = make_shot_lut(*shot_correction(cv2.resize(self.cur, (270, 480),
-                                                                      interpolation=cv2.INTER_AREA), face))
         return self.cur
 
     def camera(self, t):
@@ -599,6 +609,7 @@ class Shot:
             if self.track is not None:
                 k = min(len(self.track) - 1, max(0, self.idx))
                 fx, fy, fh = self.track[k]
+                self._face = (fx, fy, fh)
                 z = min(z, max(1.0, 0.36 / max(fh, 1e-3)))   # face never bigger than ~36% of frame height
                 cx = fx
                 cy = fy + 0.13 / z                            # face sits on the upper third line
@@ -622,6 +633,9 @@ class Shot:
         hw = 0.5 / z
         cx = min(max(cx, hw), 1 - hw)
         cy = min(max(cy, hw), 1 - hw)
+        if self.s["face"] and self.track is not None and getattr(self, "_face", None) is not None:
+            fx, fy, fh = self._face
+            self.face_xy = ((fx - cx) * z + 0.5, (fy - cy) * z + 0.5, fh * z * 0.5)
         if k < 0.98:
             sw, shh = int(round(SRC_W * k)), int(round(SRC_H * k))
             srcs = cv2.resize(src, (sw, shh), interpolation=cv2.INTER_AREA)
@@ -633,7 +647,7 @@ class Shot:
         M[1, 2] += H / 2 - ccy
         out = cv2.warpAffine(srcs, M, (W, H), flags=cv2.INTER_LINEAR if k2 < 1.3 else cv2.INTER_CUBIC,
                              borderMode=cv2.BORDER_REFLECT)
-        return grade(out, self.luts, t)
+        return grade(out, self.tone, t, self.face_xy)
 
     def close(self):
         if self.proc:
@@ -646,12 +660,13 @@ READERS = {i: Shot(s) for i, s in enumerate(TL) if s["src"] is not None}
 
 # ------------------------------------------------------------------- intro / outro
 _gy = np.linspace(0, 1, H)[:, None, None]
-_BG_BASE = (np.array([45, 8, 50], np.float32) / 255 + (np.array([60, 12, 22], np.float32) / 255 -
-                                                         np.array([45, 8, 50], np.float32) / 255) * _gy)
+_BG_TOP = np.array([72, 20, 82], np.float32) / 255
+_BG_BOT = np.array([92, 24, 52], np.float32) / 255
+_BG_BASE = _BG_TOP + (_BG_BOT - _BG_TOP) * _gy
 _gx = np.linspace(-1, 1, W)[None, :]
 _gy2 = np.linspace(-1, 1, H)[:, None]
-_GLOW = (np.exp(-(_gx ** 2 + ((_gy2 + 0.3) * 0.6) ** 2) * 2.2)[..., None] *
-         np.array([30, 110, 230], np.float32) / 255 * 0.55)
+_GLOW = (np.exp(-(_gx ** 2 + ((_gy2 + 0.3) * 0.6) ** 2) * 1.3)[..., None] *
+         np.array([40, 120, 230], np.float32) / 255 * 0.5)
 
 
 def festive_bg(t):
@@ -795,7 +810,7 @@ LEAK = (np.exp(-(_lx ** 2 + _ly ** 2) * 0.8)[..., None] * np.array([0.6, 0.85, 1
 
 
 def gold_flash(f, amt):
-    return f if amt <= 0 else f + LEAK * amt * 1.6 + amt * 0.25
+    return f if amt <= 0 else f + LEAK * amt * 1.0 + amt * 0.12
 
 
 def scaled(img, s):
@@ -860,7 +875,7 @@ def frame(t):
     # subtle brightness lift on kicks
     ke = kick_env(t)
     if ke > 0 and s["name"] not in ("intro", "outro"):
-        out = out * (1 + 0.05 * ke)
+        pass
     for j in (i, i + 1):
         if j >= len(TL) or j == 0:
             continue
@@ -891,7 +906,7 @@ def main():
             for r in READERS.values():
                 r.close()
                 r.tracked = False
-                r.luts = None
+                r.tone = Tone()
             cv2.imwrite(f"{OUT}_{t:06.2f}.jpg", to_u8(frame(t)), [cv2.IMWRITE_JPEG_QUALITY, 85])
             print("preview", t, flush=True)
         return
