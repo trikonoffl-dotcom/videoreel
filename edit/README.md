@@ -1,33 +1,40 @@
 # Diwali reel edit
 
-Final output: `output/diwali_reel_9x16.mp4`: 1080x1920 (9:16), 30 fps, 61.2 s, H.264 + AAC.
+| File | What it is |
+|---|---|
+| `output/diwali_reel_oorum_blood_9x16.mp4` | **v2 (current)**: synced to "Oorum Blood" (song section 2:41.1 – 3:48.6), 1080x1920, 30 fps, 67.5 s |
+| `output/diwali_reel_9x16.mp4` | v1: original synthesised music, 61.2 s |
 
-## Structure
+## v2 structure (cut on the song's beats, 129 BPM)
 
-| Time | Section | Footage / content |
+| Video time | Song | Section |
 |---|---|---|
-| 0.0–4.8 | Intro | Rangoli 1 spins in over fireworks, "Happy Diwali · Trikon Telesoft · Festival of Lights" |
-| 4.8–9.6 | Office lights | Entrance door with lights, then a close-up of the "Happy Diwali" banner |
-| 9.6–26.4 | Chapter 1: Diya Painting | 5 painting close-ups, then a top-down hero shot of the finished diya ("handcrafted with love") |
-| 26.4–48.0 | Chapter 2: Creative Challenge | Writing contest shots, reaction shots and the funny pose (punch-in zoom) |
-| 48.0–55.2 | Finale | Diya raised high with fireworks ("Shine Bright!"), then the entrance lights |
-| 55.2–61.2 | Outro | Rangoli 2 with the greeting and "Team Trikon Telesoft", fade to black |
+| 0.0–6.0 | quiet bridge | Intro: rangoli + **HAPPY DIWALI / TRIKON TELESOFT** |
+| 6.0–14.3 | soft build | Office lights door, then banner close-up, "Our office, all lit up" |
+| 12.0–25.4 | half-time kicks | **Chapter 01: Diya Painting**, one shot per kick, hero diya "Handcrafted with love" |
+| 25.4–29.1 | break | **Chapter 02: Creative Challenge**, then the funny pose (suspense) |
+| 29.1–42.0 | DROP 1 | Fast cuts of faces writing, laughing and smiling, every 2nd beat |
+| 42.0–44.8 | break | Calm shot |
+| 44.8–58.6 | DROP 2 | Diya raised high, **SHINE BRIGHT** + fireworks on kicks, close-up angle, **HAPPY DIWALI** |
+| 58.6–67.5 | quiet outro | Rangoli greeting, "Team Trikon Telesoft", fade out |
 
-Edit techniques:
-- **Virtual camera angles:** push-ins, pull-outs, pans, punch-ins and tilted (dutch) angles, cropped from the 4K source with no loss of quality.
-- **Warm festive grade:** S-curve, maroon shadows, gold highlights, more vibrance, bloom and vignette.
-- **Overlays:** bokeh lights, fireworks and twinkling sparkles.
-- **Transitions:** rangoli zoom-throughs between chapters, plus gold flashes, zoom-blur and crossfades.
-- **Music:** original and synthesised (`music.py`) at 100 BPM, with cuts on the beat. It uses tanpura drone, santoor melody, dhol/tabla groove, temple bells and a build-up into the finale.
+What changed from v1:
+- **Faces always in frame:** people shots use YuNet face detection (`models/yunet.onnx`). The virtual camera follows the smoothed face track and puts the face on the upper-third line. Exposure is also set from the face so it's well lit.
+- **Music sync:** cuts land on beats and kicks. Every kick adds a small zoom pulse and brightness lift, and the drops add camera shake and a gold flash.
+- **Modern typography:** Bebas Neue (gold gradient) and Outfit (light, wide tracking), with wipe reveals, frosted caption pills and gold rules.
+- **Colour grade:** per-shot white balance and exposure normalisation, then a filmic S-curve with a soft highlight shoulder. Shadows are cool-teal and highlights warm-gold. Saturation favours the decor colours (skin is boosted less), with warm bloom, a vignette and fine film grain.
 
 ## Rebuild
 
 ```bash
-python3 music.py /tmp/music.wav
-python3 render.py ../downloads/1112.mp4 assets fonts ../output/diwali_reel_9x16.mp4 --audio /tmp/music.wav
+cd edit
+python3 render.py ../downloads/1112.mp4 ../output/diwali_reel_oorum_blood_9x16.mp4 --audio /path/to/Oorum_Blood.mp3
 ```
 
-Requires `ffmpeg`, `numpy`, `scipy`, `opencv-python-headless` and `Pillow`. The shot list (EDL) and transitions are the `SHOTS` / `TRANS` tables at the top of `render.py`. Change the source in-points, durations or camera keyframes there.
-Use `--preview 3.5,11,24` to render still frames at given times for a quick check.
+The song file is not stored in the repo. Pass your own copy with `--audio`.
+`--preview 4,13,30` renders stills at those times. The edit decision list is the `S` table at the top of `render.py`, written in song times.
 
-Fonts are from Google Fonts (SIL Open Font License): Great Vibes, Yatra One, Cinzel and Poppins.
+Requires `ffmpeg`, `numpy`, `opencv-python-headless` (4.8+ for `FaceDetectorYN`) and `Pillow`. `music.py` (v1 soundtrack) also needs `scipy`.
+`faces.py` is a helper that checks face positions over source ranges.
+
+Fonts: Google Fonts (SIL OFL). Face model: OpenCV Zoo YuNet (MIT).
