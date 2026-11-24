@@ -41,9 +41,9 @@ for k in range(len(CAPS)):                              # continuous captions li
 # ---- edit decision list: (out_start, out_end, clip, src_in, src_out)  clip: orig = supplied shop footage, others = AI b-roll
 # AI-clip glitches avoided: Cub 4-6 s (warped wheel/deck), Gravely 3-10 s (garbled "GRAVEY" badge)
 EDL = [
- (0.00, 3.54, "orig", 0.00, 3.54),    # shop wide                         "What if I told you ... $1,000?"
+ (0.00, 3.54, "drone", 0.20, 3.74),   # DRONE: push-in to the shop sign                         "What if I told you ... $1,000?"
  (3.54, 6.32, "orig", 6.58, 9.04),    # red stand-on mower                "That's right!"
- (6.32, 9.64, "orig", 18.58, 21.13),  # aerial of the Morisset shop       "Morisset Mowers is bringing you ... deals"
+ (6.32, 9.64, "drone", 3.90, 7.22),  # DRONE: side pass along the mower line-up       "Morisset Mowers is bringing you ... deals"
  (9.64, 11.30, "orig", 9.20, 10.86),  # deck close-up                     "Get $1,000 off"
  (11.30, 12.34, "cub", 0.15, 1.35),   # Cub Cadet approaching             "Cub Cadet and"
  (12.34, 14.46, "grav", 0.20, 2.60),  # Gravely stand-on (clean part)     "Gravely zero-turn mowers"
@@ -56,9 +56,9 @@ EDL = [
  (25.34, 27.58, "orig", 21.30, 23.50),# Gravely in front of shop          "The sale runs from November 27th"
  (27.58, 29.98, "cub", 7.70, 10.04),  # Cub Cadet front-on                "to 30th ... stock available."
  (29.98, 31.60, "brush", 6.00, 7.62), # operator trimming                 "Don't miss out!"
- (31.60, 34.80, "orig", 27.70, 29.96),# Cub Cadet front, shop sign        "Head to Morisset Mowers ... sale."
+ (31.60, 34.80, "drone", 6.90, 10.04),# DRONE: pull-back, shop + line-up        "Head to Morisset Mowers ... sale."
 ]
-_dirs = {"orig": "fr", "cub": "cl/cub", "grav": "cl/grav", "brush": "cl/brush"}
+_dirs = {"drone": "cl/drone", "orig": "fr", "cub": "cl/cub", "grav": "cl/grav", "brush": "cl/brush"}
 _cache = {}
 def _img(scr, clip, n):
     d = _dirs[clip]; key = (clip, n)
