@@ -42,21 +42,26 @@ for k in range(len(CAPS)):                              # continuous captions li
 # AI-clip glitches avoided: Cub 4-6 s (warped wheel/deck), Gravely 3-10 s (garbled "GRAVEY" badge)
 EDL = [
  (0.00, 3.54, "drone", 0.20, 3.74),   # DRONE: push-in to the shop sign                         "What if I told you ... $1,000?"
- (3.54, 6.32, "orig", 6.58, 9.04),    # red stand-on mower                "That's right!"
- (6.32, 9.64, "drone", 3.90, 7.22),  # DRONE: side pass along the mower line-up       "Morisset Mowers is bringing you ... deals"
+ (3.54, 6.32, "orig", 6.58, 9.04, dict(zoom=(1.75, 2.25), center=(0.54, 0.66))),  # zoomed on the machine only (old shop hidden)                "That's right!"
+ (6.32, 9.64, "drone", 5.40, 7.90, dict(noblend=True)),  # DRONE: slow pull-back over the mower line-up       "Morisset Mowers is bringing you ... deals"
  (9.64, 11.30, "orig", 9.20, 10.86),  # deck close-up                     "Get $1,000 off"
  (11.30, 12.34, "cub", 0.15, 1.35),   # Cub Cadet approaching             "Cub Cadet and"
- (12.34, 14.46, "grav", 0.20, 2.60),  # Gravely stand-on (clean part)     "Gravely zero-turn mowers"
+ (12.34, 14.46, "drone", 3.85, 5.45, dict(zoom=(1.9, 2.3), center=(0.30, 0.74), noblend=True)),  # DRONE: sit-down zero-turn riders (no stand-on)     "Gravely zero-turn mowers"
  (14.46, 16.40, "orig", 11.46, 13.62),# yellow tractor                    "Save $500 on selected"
  (16.40, 18.04, "cub", 2.30, 3.94),   # Cub Cadet side, driver            "Cub Cadet, Gravely and"
  (18.04, 19.78, "cub", 6.00, 7.74),   # tractor striping lawn (aerial)    "Victa ride-on mowers."
  (19.78, 21.56, "brush", 0.00, 1.78), # brush cutter operator             "Plus, get 10% off"
  (21.56, 23.26, "orig", 3.62, 5.32),  # brush cutter in window            "small goods, mowers,"
  (23.26, 25.34, "brush", 2.00, 4.08), # trimming garden edge              "trimmers and chainsaws."
- (25.34, 27.58, "orig", 21.30, 23.50),# Gravely in front of shop          "The sale runs from November 27th"
+ (25.34, 25.713, "cub", 8.40, 8.78, dict(punch=True)),     # --- match-cut montage of every machine (+SFX) ---
+ (25.713, 26.087, "grav", 0.10, 0.48, dict(punch=True)),
+ (26.087, 26.460, "brush", 0.20, 0.58, dict(punch=True)),
+ (26.460, 26.833, "orig", 10.00, 10.38, dict(punch=True)),
+ (26.833, 27.207, "cub", 2.80, 3.18, dict(punch=True)),
+ (27.207, 27.58, "brush", 2.60, 2.98, dict(punch=True)),
  (27.58, 29.98, "cub", 7.70, 10.04),  # Cub Cadet front-on                "to 30th ... stock available."
  (29.98, 31.60, "brush", 6.00, 7.62), # operator trimming                 "Don't miss out!"
- (31.60, 34.80, "drone", 6.90, 10.04),# DRONE: pull-back, shop + line-up        "Head to Morisset Mowers ... sale."
+ (31.60, 34.80, "drone", 7.60, 10.04, dict(noblend=True)),# DRONE: pull-back, shop + line-up        "Head to Morisset Mowers ... sale."
 ]
 _dirs = {"drone": "cl/drone", "orig": "fr", "cub": "cl/cub", "grav": "cl/grav", "brush": "cl/brush"}
 _cache = {}
@@ -66,17 +71,34 @@ def _img(scr, clip, n):
         if len(_cache) > 24: _cache.pop(next(iter(_cache)))
         _cache[key] = cv2.imread(f"{scr}/{d}/{n:04d}.jpg").astype(np.float32)[..., ::-1] / 255
     return _cache[key]
+def _zoom(im, z, cx, cy):
+    cw, chh = W / z, H / z
+    x0 = min(max(cx * W - cw / 2, 0), W - cw); y0 = min(max(cy * H - chh / 2, 0), H - chh)
+    M = np.float32([[z, 0, -x0 * z], [0, z, -y0 * z]])
+    out = cv2.warpAffine(im, M, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    if z > 1.2:                                                    # light sharpen to offset the upscale softness
+        out = np.clip(out + 0.5 * (out - cv2.GaussianBlur(out, (0, 0), 1.6)), 0, 1)
+    return out
 def base_frame(i, scr):
     t = (i - 1) / FPS
     seg = next((e for e in EDL if e[0] <= t < e[1]), EDL[-1])
-    t0, t1, clip, a, b = seg
+    t0, t1, clip, a, b = seg[:5]; opt = seg[5] if len(seg) > 5 else {}
     p = (a + (t - t0) * (b - a) / (t1 - t0)) * FPS            # source frame position (0-based), blended for smooth speed changes
     f0 = int(math.floor(p)); fr = p - f0
     n_max = len(os.listdir(f"{scr}/{_dirs[clip]}"))
     f0 = min(max(f0, 0), n_max - 2)
     im = _img(scr, clip, f0 + 1)
-    if fr > 0.02: im = im * (1 - fr) + _img(scr, clip, f0 + 2) * fr
-    return im.copy()
+    if fr > 0.02 and not opt.get("noblend"): im = im * (1 - fr) + _img(scr, clip, f0 + 2) * fr
+    elif fr > 0.5 and opt.get("noblend"): im = _img(scr, clip, f0 + 2)
+    z, cx, cy = 1.0, 0.5, 0.5
+    if "zoom" in opt:
+        u = (t - t0) / (t1 - t0); u = u * u * (3 - 2 * u)
+        z = opt["zoom"][0] + (opt["zoom"][1] - opt["zoom"][0]) * u; cx, cy = opt["center"]
+    if opt.get("punch"):
+        k = (t - t0) * FPS
+        if k < 4: z *= 1 + 0.14 * (1 - k / 4) ** 2               # quick punch-in on every match cut
+    if z > 1.001: im = _zoom(im, z, cx, cy)
+    return im.copy() if z <= 1.001 else im
 
 _font = ImageFont.truetype(FONT, SIZE)
 _hfont = ImageFont.truetype("/usr/share/fonts/opentype/inter/InterDisplay-ExtraBold.otf", SIZE)
@@ -181,5 +203,5 @@ if __name__ == "__main__":
     jobs = [(k * per + 1, min(TOTAL, (k + 1) * per), f"{scr}/seg{k}.mp4", scr) for k in range(n)]
     with Pool(n) as p: segs = p.map(work, jobs)
     open(f"{scr}/list.txt", "w").write("".join(f"file '{s}'\n" for s in segs))
-    subprocess.check_call(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", f"{scr}/list.txt", "-i", f"{scr}/mix3.wav",
+    subprocess.check_call(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", f"{scr}/list.txt", "-i", f"{scr}/mix4.wav",
         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", f"{TOTAL / FPS:.3f}", "-movflags", "+faststart", out])
