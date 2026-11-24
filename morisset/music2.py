@@ -1,5 +1,5 @@
 import numpy as np, wave, sys
-S=sys.argv[1]; sr=44100; dur=30.2; bpm=100; beat=60/bpm; n=int(sr*dur)
+S=sys.argv[1]; sr=44100; dur=float(sys.argv[2]) if len(sys.argv)>2 else 30.2; bpm=100; beat=60/bpm; n=int(sr*dur)
 rng=np.random.default_rng(7); out=np.zeros((n,2),np.float32)
 def lp(x,fc):
     a=np.exp(-2*np.pi*fc/sr); y=np.zeros_like(x); s=0.0
@@ -46,6 +46,6 @@ for b in range(bars):
         add(tq+beat/2,hat,.07,pan=.2); 
         if q%2==0: add(tq+beat*.75,hat,.03,pan=-.2)
 out=np.tanh(out*1.2)
-fi=np.minimum(1,np.arange(n)/(0.6*sr)); fo=np.minimum(1,np.maximum(0,(n-np.arange(n))/(1.8*sr)))
+fi=np.minimum(1,np.arange(n)/(0.6*sr)); fo=np.minimum(1,np.maximum(0,(n-np.arange(n))/(2.2*sr)))
 out*= (fi*fo)[:,None]; out*=0.9/np.abs(out).max()
 w=wave.open(f"{S}/music2.wav","wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr); w.writeframes((out*32767).astype('<i2').tobytes()); w.close()
