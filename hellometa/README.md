@@ -73,7 +73,7 @@ Requirements: `ffmpeg`, `numpy`, `scipy`, `opencv-python-headless`, `Pillow`. Th
 | `input/Raw video.mp4` | The interview | Supplied |
 | `input/reference.mp4` | Editing style reference | Supplied |
 | `input/map_reference.mp4` | Map style reference | Supplied |
-| `assets/HelloMeta-Logo-1.png` | The original logo, downloaded from hellometa.ai. Its shape is never altered; only the colour treatment changes | HelloMeta |
+| `assets/HelloMeta-Logo-1.png` | The original logo, downloaded from hellometa.ai (identical to the supplied artwork) and used exactly as supplied: no colour or shape changes | HelloMeta |
 | `assets/web/` | Captures of the live https://hellometa.ai (desktop, 3x density). The sticky header and back-to-top button are hidden on section captures. No forms were touched | Captured from the live site |
 | `assets/map_region.jpg` | Natural Earth I raster with shaded relief, water and drainage (NE1_HR_LC_SR_W_DR) | Public domain |
 | Country outlines | Natural Earth 10m admin 0 | Public domain |
