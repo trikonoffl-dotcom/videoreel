@@ -1,26 +1,27 @@
 # HelloMeta.ai brand film (9:16)
 
-**Output:** `../output/hellometa_brand_film_9x16.mp4`. It is 1080x1920, 30 fps (same as the source), H.264 with AAC 320k stereo, about 55.5 s long, with subtitles burned in.
+**Output:** `../output/hellometa_brand_film_9x16.mp4`. It is 1080x1920, 30 fps (same as the source), H.264 with AAC 320k stereo, 53.1 s long, with subtitles burned in.
 
 ## Structure
 
+The film opens directly on the speaker. There is no title animation.
+
 | Time | Scene | What's on screen |
 |---|---|---|
-| 0.0–2.4 | Hook | Kinetic type from the live site's hero headline: **MEET YOUR / AI PHONE CALL / AGENT**, an orange light line and a grid, landing on the music hit, then a zoom-blur whip into the speaker |
-| 2.4–40.0 | Interview | Zarina's testimonial: filler removed, face-tracked framing, word-by-word subtitles |
-| 3.4–6.6 | ↳ Map | Philippines → Sydney: dark relief map, glowing country outlines, curved orange route with a travel point, pulsing markers and labels |
-| 8.3–11.0 | ↳ Website intro | The live homepage in a floating browser window, pushing in on "Meet Your AI Phone Call Agent" |
-| 12.0–12.8 | ↳ Kinetic | **IT'S THE BEST** |
-| 12.8–15.7 | ↳ AI phone tech | The phone mockup and the "Meet Plug" robot, then a tilt down to "Understand First, Respond Later" and "Smarter Responses" |
-| 17.9–20.4 | ↳ Industries | Camera tracks across the Angela, Dave and Alex cards (Appointment Booking, Real Estate, Debt Collection), then the Healthcare call card |
-| 27.0–30.6 | ↳ Dashboard | CRM login, dashboard and call-log images in 3D, pushing in on the Overview panel |
-| 33.8–36.9 | ↳ Features | Plug with Call Recordings, Smart Call Logs, Interactive Voice Flows (the script editor), One-click AI Calling and others |
-| 37.3–38.3 | ↳ Kinetic | **AND EXCELLENT.** |
-| 40.0–42.0 | Multilingual | The site's 10 language cards fly in, and Filipino (Tagalog) is highlighted |
-| 42.0–43.5 | Calculator | The Missed Revenue Calculator, showing the site's own $0.00 placeholders (no invented numbers) |
-| 43.5–47.5 | How it works | 01 DEFINE, 02 DESIGN and 03 DEPLOY land on the beat, joined by an orange line |
-| 47.5–52.0 | Hilltop | Dusk landscape with parallax layers. The logo rises from behind the summit, rim-lit and light-wrapped, with god rays, then the scene blooms to white |
-| 52.0–55.5 | End slide | The original logo with the orange-to-black metallic treatment on white, a scale-up and a light sweep |
+| 0.0–37.6 | Interview | Zarina's testimonial: filler removed, face-tracked framing, word-by-word subtitles |
+| 1.0–4.2 | ↳ Map | Philippines → Sydney: dark relief map, glowing country outlines, curved orange route, pulsing markers and labels |
+| 5.9–8.6 | ↳ Website intro | The live homepage in a floating browser window, pushing in on "Meet Your AI Phone Call Agent" |
+| 9.6–10.4 | ↳ Kinetic | **IT'S THE BEST** |
+| 10.4–13.3 | ↳ AI phone tech | The phone mockup and "Meet Plug", then "Understand First, Respond Later" and "Smarter Responses" |
+| 15.5–18.0 | ↳ Industries | Angela, Dave and Alex cards (Appointment Booking, Real Estate, Debt Collection), then the Healthcare call card |
+| 24.6–28.2 | ↳ Dashboard | CRM login, dashboard and call-log images in 3D |
+| 31.4–34.5 | ↳ Features | Plug with Call Recordings, Smart Call Logs, Interactive Voice Flows, One-click AI Calling and others |
+| 34.9–35.9 | ↳ Kinetic | **AND EXCELLENT.** |
+| 37.6–39.6 | Multilingual | The site's 10 language cards, with Filipino (Tagalog) highlighted |
+| 39.6–41.1 | Calculator | The Missed Revenue Calculator, showing the site's own $0.00 placeholders |
+| 41.1–45.1 | How it works | 01 DEFINE, 02 DESIGN, 03 DEPLOY |
+| 45.1–49.6 | Hilltop | Dusk landscape with parallax. The logo rises from behind the summit. The supplied logo is composited last and unaltered, so its colours and shape are exactly the original |
+| 49.6–53.1 | End slide | The supplied logo, unaltered, on white, with a fade-in and gentle scale-up |
 
 ## Speech edit (`data/edl.json`)
 
@@ -39,27 +40,23 @@ Every meaningful statement is kept. Cut points snap to nearby energy minima and 
 
 ## Sound (`audio.py`)
 
-**Voice processing:** high-pass filter, light FFT denoise (kept gentle because heavier settings made the voice less intelligible), EQ to reduce mud and add presence, compression, then loudness normalisation.
+**Voice:** neural noise reduction with DeepFilterNet3 at 48 kHz removes the expo-hall crowd.
+- The speech-to-noise-floor range rises from 8 dB in the raw audio to about 20 dB.
+- Attenuation is capped at 20 dB so no words are lost.
+- A 12 dB pass is blended in around "whole-day", because the stronger pass blurs that word.
+- After the denoise come a high-pass filter, EQ to reduce mud and add presence, gentle compression and loudness normalisation.
 
-**Score:** an original synthesised electronic track at 120 BPM in A minor. Sections:
-- a hook impact with a riser
-- a half-time bed under the interview
-- a snare build
-- a four-on-the-floor drop for the website montage
-- a cinematic breakdown with a boom when the logo lands
-- a bell chord on the end slide
+**Score:** an original synthesised electronic track at 120 BPM in A minor, with no sound effects (no whooshes, impacts, pings or risers). It has a soft bed under the interview, a four-on-the-floor section for the website montage, a breakdown for the hilltop and a closing chord.
 
-**SFX:** whooshes on transitions, map pings, typography hits and a logo shimmer.
-
-**Mix:** the music ducks 14 dB under the voice. The voice sits 9–15 dB above the background throughout, and the final mix is −14 LUFS with a true-peak limiter.
+**Mix:** the music ducks 14 dB under the voice, so the voice sits 13–17 dB above the music. The final mix is −14 LUFS with a true-peak limiter.
 
 ## Rebuild
 
 ```bash
 cd hellometa
-python3 assets.py        # metallic logo, graded map, landscape layers -> build/
+python3 assets.py        # graded map, landscape layers -> build/
 python3 faces.py         # face track -> data/faces.json
-python3 audio.py         # voice, score, sfx, mix -> build/mix.wav
+DF_PYTHON=/path/to/venv/bin/python DF_MODEL=/path/to/DeepFilterNet3 python3 audio.py   # -> build/mix.wav
 python3 render.py --jobs 4
 ```
 
@@ -67,7 +64,7 @@ Other options:
 - `python3 render.py --stills 3.6,12.5,49.8` renders QC stills to `build/`.
 - `tools_map_crop.py` re-cuts the map region from the Natural Earth raster (not stored in the repo because it is 300 MB).
 
-Requirements: `ffmpeg`, `numpy`, `scipy`, `opencv-python-headless`, `Pillow`. The speech tools also need `pyshp`, `faster-whisper` and `torch`/`torchaudio`.
+Requirements: `ffmpeg`, `numpy`, `scipy`, `opencv-python-headless`, `Pillow`. The speech tools also need `pyshp`, `faster-whisper` and `torch`/`torchaudio`. Run DeepFilterNet (`deepfilternet`, which needs numpy<2) in its own venv. The model is at raw.githubusercontent.com/Rikorose/DeepFilterNet/main/models/DeepFilterNet3.zip.
 
 ## Sources
 

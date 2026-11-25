@@ -44,6 +44,8 @@ def asset(key):
         v = Pyr(cv2.imread(B('map_dark.png')).astype(np.float32) / 255)
     elif key in ('mask_ph', 'mask_au'):
         v = Pyr(cv2.imread(os.path.join(HERE, 'assets', key + '.png'), 0).astype(np.float32) / 255)
+    elif key == 'logo':  # the supplied HelloMeta logo, used exactly as provided
+        v = cv2.imread(os.path.join(HERE, 'assets', 'HelloMeta-Logo-1.png'), cv2.IMREAD_UNCHANGED).astype(np.float32) / 255
     elif key.startswith('logo'):
         v = cv2.imread(B(key + '.png'), cv2.IMREAD_UNCHANGED).astype(np.float32) / 255
     elif key == 'land_meta':
@@ -205,48 +207,6 @@ def grade_speaker(img):
     g = x.mean(2, keepdims=True)
     x = g + (x - g) * 1.06
     return np.clip(x * get_vig(), 0, 1)
-
-
-# ================================================================== hook (0 - 2.4)
-def hook(t, fi):
-    f = tech_bg(t)
-    # orange light line expanding across the frame on the first hit
-    p = ease_expo_out(lin(t, 0.0, 0.45))
-    line = np.zeros((H, W, 3), np.float32)
-    half = int(540 * p)
-    cv2.rectangle(line, (540 - half, 1176), (540 + half, 1180), tuple(float(c) for c in ORANGE), -1)
-    f += line * (1.4 - 0.9 * lin(t, 0.4, 1.4))
-    glow(f, line, 18, 1.5 * (1 - 0.6 * lin(t, 0.3, 1.5)))
-    push = 1 + 0.05 * ease_io(lin(t, 0, 2.4))
-    cx, cy = 540, 960
-
-    def word(spr, y, t0, dur=0.35, kind='pop'):
-        u = lin(t, t0, t0 + dur)
-        if u <= 0:
-            return
-        e = ease_expo_out(u)
-        if kind == 'pop':
-            sc = (1.25 - 0.25 * e) * push
-            place(f, spr, cx, cy + (y - cy) * push, sc, e)
-        else:
-            place(f, spr, cx, cy + (y - cy) * push + 40 * (1 - e), push, e)
-
-    tr = 22 * (1 - ease_out(lin(t, 0.12, 0.9)))
-    word(text_sprite('MEET YOUR', 74, 600, (1.0, 1.0, 1.0), round(tr / 2) * 2 + 10), 760, 0.12, 0.4, 'up')
-    word(text_sprite('AI PHONE CALL', 132, 800, tuple(ORANGE)), 905, 0.50)
-    word(text_sprite('AGENT', 250, 800, (1.0, 1.0, 1.0)), 1080, 0.98)
-    u = lin(t, 1.45, 1.85)
-    if u > 0:
-        spr = text_sprite('hellometa.ai', 50, 500, tuple(GREY * 1.9), 14)
-        place(f, spr, cx, 1262 + 20 * (1 - ease_out(u)), push, ease_out(u))
-    # light sweep across the type
-    sw = lin(t, 1.0, 1.8)
-    if 0 < sw < 1:
-        xs = np.arange(W, dtype=np.float32)
-        band = np.exp(-((xs - (-200 + 1500 * sw)) / 90) ** 2)[None, :, None]
-        mask = np.zeros((H, W), np.float32); mask[820:1200] = 1
-        f += band * mask[..., None] * 0.12
-    return f
 
 
 # ================================================================== map (Philippines -> Sydney)
@@ -681,51 +641,34 @@ def hill_scene(t, fi):
         # atmospheric haze band in front of each ridge
         hz = np.exp(-((np.arange(H, dtype=np.float32) - (P[1] + 120 * d)) / (260 + 200 * d)) ** 2)[:, None, None]
         f += hz * np.array([0.10, 0.25, 0.45], np.float32) * haze * 0.5
-    # logo rises from behind the summit, planted on the plateau
-    logo = asset('logo_metal_rim')
-    lw_world = 560
+    # logo rises from behind the summit and stands on the plateau. It is composited LAST, after all
+    # lighting effects, so its colours and shape are exactly the supplied artwork; only the hill
+    # in front of it masks it while it rises.
+    logo = asset('logo')
+    lw_world = 600
     lh_world = lw_world * logo.shape[0] / logo.shape[1]
     rise = ease_out(lin(u, 1.15, T.HILL_HIT - t0), 3)
     hill, s_hill, M = layer(asset('land_hill'), 1.0)
     lx = meta['summit_x']; ly_bottom = meta['summit_y'] + 10 + lh_world * (1 - rise) * 1.05
     p = M @ np.array([lx, ly_bottom, 1.0])
+    ll = np.zeros((H, W, 4), np.float32)
     if rise > 0:
-        ll = np.zeros((H, W, 4), np.float32)
         place(ll, logo, p[0], p[1] - lh_world * s_hill / 2, lw_world * s_hill / logo.shape[1], 1.0)
-        la = ll[..., 3]
-        # backlight halo behind the letters
-        f *= (1 - 0.35 * blur_fast(la, 18))[..., None]  # soft contact darkening behind letters (depth)
-        # light wrap: the bright sky bleeds into the letter edges; slight atmospheric haze
-        bgb = blur_fast(f, 14)
-        wrap = (la * (1 - blur_fast(la, 6)))[..., None]
-        col = ll[..., :3] / np.maximum(la, 1e-4)[..., None]
-        col = col * 0.96 + bgb * 0.04 + bgb * wrap * 0.45
-        over(f, col, la)
     over(f, hill[..., :3], hill[..., 3])
-    fg_alpha = hill[..., 3]
-    # ground bounce light on the plateau and the logo's contact shadow toward camera
-    if rise > 0.98:
-        pc = M @ np.array([lx, meta['summit_y'] + 26, 1.0])
-        sh = np.zeros((H, W), np.float32)
-        cv2.ellipse(sh, (int(pc[0]), int(pc[1])), (int(lw_world * s_hill * 0.55), int(16 * s_hill)), 0, 0, 360, 1, -1, cv2.LINE_AA)
-        sh = cv2.GaussianBlur(sh, (0, 0), 6 * s_hill + 1)
-        f *= (1 - 0.6 * sh * hill[..., 3])[..., None]
-    # god rays from the sun behind the logo
+    fg_alpha = np.maximum(hill[..., 3], ll[..., 3] * (1 - hill[..., 3]))
+    # god rays from the sun, shaded by the hill and the logo silhouette
     sun = M @ np.array([meta['summit_x'], meta['horizon'] - 250, 1.0])
     bright = np.clip(f.mean(2) - 0.55, 0, 1) * (1 - fg_alpha)
     small = cv2.resize(bright, (W // 4, H // 4), interpolation=cv2.INTER_AREA)
     rays = zoom_blur(small[..., None].repeat(3, 2), 0.55, sun[0] / 4, sun[1] / 4, n=10)
     rays = cv2.resize(rays, (W, H), interpolation=cv2.INTER_LINEAR)
     f += rays * np.array([0.35, 0.65, 1.0], np.float32) * 0.9
-    # landing flare
-    fl = np.exp(-((u - (T.HILL_HIT - t0)) / 0.18) ** 2) if u > 1.0 else 0
-    if fl > 0.01:
-        ys = np.arange(H, dtype=np.float32)[:, None]; xs = np.arange(W, dtype=np.float32)[None, :]
-        streak = np.exp(-((ys - (p[1] - lh_world * s_hill * 0.5)) / 6) ** 2) * np.exp(-((xs - p[0]) / 500) ** 2)
-        f += streak[..., None] * np.array([0.5, 0.8, 1.0]) * fl * 0.9
-    # embers
     particles(f, t, color=np.array([0.4, 0.75, 1.0], np.float32), amt=0.8, speed=25)
     f *= vignette_cache('map') ** 0.6
+    f = np.clip(f, 0, 1)
+    # the logo itself, unaltered, in front of the sky and behind the hill
+    la = ll[..., 3] * (1 - hill[..., 3])
+    f = f * (1 - la[..., None]) + ll[..., :3] * (1 - hill[..., 3])[..., None]
     # bloom into the white end slide
     wb = ease_in(lin(u, D - 0.45, D), 2)
     f = f * (1 - wb) + wb
@@ -734,25 +677,13 @@ def hill_scene(t, fi):
 
 # ================================================================== white end slide
 def end_scene(t, fi):
+    """white slide: the supplied logo, unaltered, fades in with a gentle scale-up"""
     t0, t1 = T.END; u = t - t0
     f = np.ones((H, W, 3), np.float32)
-    logo = asset('logo_metal')
+    logo = asset('logo')
     a = ease_out(lin(u, 0.05, 0.8))
-    sc = (0.93 + 0.07 * ease_expo_out(lin(u, 0, 1.6)) + 0.015 * lin(u, 1.6, t1 - t0))
-    lw = 880
-    s = lw / logo.shape[1] * sc
-    # soft contact shadow for dimension
-    shadow = logo.copy(); shadow[..., :3] = 0; shadow[..., 3] = cv2.GaussianBlur(logo[..., 3], (0, 0), 18) * 0.18
-    place(f, shadow, 540, 968 + 22, s, a)
-    place(f, logo, 540, 960, s, a)
-    # specular light sweep across the metal
-    sw = lin(u, 0.9, 1.8)
-    if 0 < sw < 1:
-        lm = np.zeros((H, W, 4), np.float32)
-        place(lm, np.dstack([np.ones_like(logo[..., :3]), logo[..., 3]]), 540, 960, s, 1.0)
-        xs = np.arange(W, dtype=np.float32)[None, :]; ys = np.arange(H, dtype=np.float32)[:, None]
-        band = np.exp(-(((xs + 0.35 * ys) - (-100 + 1700 * sw)) / 60) ** 2)
-        f += (band * lm[..., 3] * 0.45)[..., None]
+    sc = 0.92 + 0.08 * ease_expo_out(lin(u, 0, 1.6)) + 0.015 * lin(u, 1.6, t1 - t0)
+    place(f, logo, 540, 960, 880 / logo.shape[1] * sc, a, interp=cv2.INTER_CUBIC)
     return f
 
 
@@ -879,8 +810,6 @@ def draw_subs(f, t):
 
 # ================================================================== timeline assembly
 def base_scene(t):
-    if t < T.SPEECH_OFF:
-        return 'hook', None
     for name, a, b in T.BROLL:
         if a <= t < b:
             return name, (a, b)
@@ -894,7 +823,6 @@ def base_scene(t):
 
 
 def render_scene(name, win, t, fi):
-    if name == 'hook': return hook(t, fi)
     if name == 'speaker': return speaker(min(t, T.OUTRO - 0.001), fi)
     if name == 'map': return map_scene(t, fi, *win)
     if name == 'web_hero': return web_hero(t, fi, *win)
@@ -921,7 +849,7 @@ def scene_at(t):
 
 def render_frame(t, fi):
     # transition handling
-    bounds = sorted(set([T.SPEECH_OFF] + [x for _, a, b in T.BROLL for x in (a, b)] +
+    bounds = sorted(set([x for _, a, b in T.BROLL for x in (a, b)] +
                         [T.OUTRO, T.CALC[0], T.HOW[0], T.HILL[0]]))
     tc = next((b for b in bounds if abs(t - b) < TRANS and b not in NO_TRANS), None)
     if tc is None:
@@ -949,6 +877,8 @@ def render_frame(t, fi):
     # finishing: light grain (not on the white end slide)
     if t < T.END[0]:
         f = f + grain(fi, 0.014)
+    if t < 0.2:  # soft open on the speaker
+        f = f * ease_out(t / 0.2, 2)
     return np.clip(f, 0, 1)
 
 

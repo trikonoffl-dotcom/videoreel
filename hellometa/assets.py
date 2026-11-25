@@ -177,6 +177,5 @@ def build_landscape():
 
 
 if __name__ == '__main__':
-    build_logo(); print('logo')
     build_map(); print('map')
     build_landscape(); print('landscape')

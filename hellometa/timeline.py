@@ -11,18 +11,19 @@ W, H = 1080, 1920
 BPM = 120
 BEAT = 60 / BPM
 
-SPEECH_OFF = 2.4
+SPEECH_OFF = 0.0   # the film opens directly on the speaker (no title animation)
+MUSIC_SHIFT = 2.4  # the score is composed on a grid that starts 2.4 s before the picture
 EDL = json.load(open(os.path.join(HERE, 'data', 'edl.json')))
 XF = 0.025  # audio crossfade between segments
 SPEECH_LEN = sum(e - s for s, e, _ in EDL) - XF * (len(EDL) - 1)
 
-OUTRO = 40.0          # music drop, website montage after the interview
-LANG = (40.0, 42.0)   # multilingual section
-CALC = (42.0, 43.5)   # missed revenue calculator
-HOW = (43.5, 47.5)    # Define / Design / Deploy, steps land on beats 43.5, 44.5, 45.5
-HILL = (47.5, 52.0)   # hilltop logo reveal; logo lands at HILL_HIT
-HILL_HIT = 49.5
-END = (52.0, 55.5)    # white closing slide
+OUTRO = 37.6          # music drop, website montage after the interview
+LANG = (37.6, 39.6)   # multilingual section
+CALC = (39.6, 41.1)   # missed revenue calculator
+HOW = (41.1, 45.1)    # Define / Design / Deploy, one step per beat
+HILL = (45.1, 49.6)   # hilltop logo reveal; logo lands at HILL_HIT
+HILL_HIT = 47.1
+END = (49.6, 53.1)    # white closing slide
 DUR = END[1]
 
 
@@ -69,7 +70,7 @@ def edit_to_source(te):
 
 # transitions that get a whoosh (output times)
 def transitions():
-    ts = [SPEECH_OFF]
+    ts = []
     for _, a, b in BROLL:
         ts += [a, b]
     ts += [OUTRO, CALC[0], HOW[0], HILL[0], END[0]]

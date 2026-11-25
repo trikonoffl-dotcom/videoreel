@@ -1,8 +1,8 @@
-"""Soundtrack: cleaned interview voice + synthesised futuristic electronic score + SFX, mixed.
+"""Soundtrack: interview voice (neural denoise) + synthesised electronic score, mixed. No sound effects.
 
-  python3 audio.py            -> build/voice.wav, build/music.wav, build/sfx.wav, build/mix.wav
+  DF_PYTHON=... DF_MODEL=... python3 audio.py   -> build/voice.wav, build/music.wav, build/mix.wav
 """
-import numpy as np, subprocess, json, os
+import numpy as np, subprocess, json, os, sys
 from scipy import signal
 import timeline as T
 
@@ -44,13 +44,34 @@ def build_voice():
             out[-XF:] = out[-XF:] * np.sqrt(1 - r) + c[:XF] * np.sqrt(r)  # equal-power crossfade
             out = np.vstack([out, c[XF:]])
     tmp = B('voice_edit_raw.wav'); save(tmp, out)
-    # enhancement: rumble cut, broadband denoise, de-mud, presence, gentle compression, loudness
-    chain = ('highpass=f=85,afftdn=nr=4:nf=-34:tn=1,equalizer=f=280:t=q:w=1.2:g=-2.5,'
-             'equalizer=f=3200:t=q:w=1.0:g=3,'
-             'acompressor=threshold=-22dB:ratio=3:attack=8:release=120:makeup=3,'
+    # 1) neural noise reduction (DeepFilterNet3) removes the expo-hall crowd. Capped at 20 dB of
+    #    attenuation, which keeps every word; around "whole-day" a 12 dB pass is blended in because the
+    #    stronger pass blurs that word into "half-day".
+    df = {}
+    for lim in ('20', '12'):
+        p = B(f'voice_df_{lim}.wav')
+        if not os.path.exists(p):
+            py = os.environ.get('DF_PYTHON'); model = os.environ.get('DF_MODEL')
+            if not (py and model):
+                sys.exit('set DF_PYTHON (python with deepfilternet) and DF_MODEL (DeepFilterNet3 dir)')
+            subprocess.run([py, os.path.join(HERE, 'tools_deepfilter.py'), tmp, p, lim, model], check=True)
+        df[lim] = load(p)[:, 0]
+    v = df['20'].copy()
+    words = json.load(open(os.path.join(HERE, 'data', 'subs_words.json')))
+    for w in words:
+        if w['w'].startswith('whole-day'):
+            a0, a1 = int((w['s'] - 0.25) * SR), int((w['e'] + 0.15) * SR)
+            env = np.zeros(len(v)); env[a0:a1] = 1
+            env = np.convolve(env, np.ones(int(0.06 * SR)) / int(0.06 * SR), 'same')
+            v = v * (1 - env) + df['12'][:len(v)] * env
+    save(B('voice_df.wav'), np.stack([v, v], 1))
+    # 2) polish: rumble cut, de-mud, presence, gentle compression, loudness
+    chain = ('highpass=f=80,equalizer=f=280:t=q:w=1.2:g=-2,'
+             'equalizer=f=3200:t=q:w=1.0:g=2.5,'
+             'acompressor=threshold=-22dB:ratio=2.5:attack=8:release=120:makeup=2,'
              'loudnorm=I=-16:LRA=6:TP=-1.5')
-    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', tmp, '-af', chain, '-ar', str(SR), B('voice_clean.wav')],
-                   check=True)
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', B('voice_df.wav'), '-af', chain, '-ar', str(SR),
+                    B('voice_clean.wav')], check=True)
     v = load(B('voice_clean.wav'))
     v = v.mean(1, keepdims=True).repeat(2, 1)  # centred mono voice
     full = np.zeros((N, 2), np.float32)
@@ -237,26 +258,18 @@ CHORDS = [  # A minor: Am, F, C, G  (MIDI notes), one per bar
 
 
 def build_music():
-    mus = np.zeros((N, 2)); drums = np.zeros((N, 2)); pads = np.zeros((N, 2)); fx = np.zeros((N, 2))
-    nbars = int(T.DUR / 2) + 1
+    """composed on the original 120 BPM grid (bar lines every 2 s from grid 0), then trimmed by
+    MUSIC_SHIFT so bar lines still fall on the picture's outro cuts. No impacts, pings or noise risers."""
+    SH = T.MUSIC_SHIFT
+    NM = N + int(SH * SR)
+    HILL0, HILL_HIT, END0, OUT = T.HILL[0] + SH, T.HILL_HIT + SH, T.END[0] + SH, T.OUTRO + SH
+    mus = np.zeros((NM, 2)); drums = np.zeros((NM, 2)); pads = np.zeros((NM, 2))
     beat = T.BEAT
-
-    # --- HOOK (0 - 2.4): impact, fast arp opening, riser into the speech
-    place(fx, boom(2.0), 0.0, 0.9)
-    place(drums, kick(0.6, 1.3), 0.0, 1.0)
-    for k in range(int(2.4 / (beat / 4))):
-        t0 = k * beat / 4
-        root, ch = CHORDS[0]
-        f = note(ch[[0, 2, 3, 1][k % 4]] + 12)
-        place(mus, pluck(f, 0.2, 1500 + 4000 * t0 / 2.4), t0, 0.22, pan=0.4 * np.sin(k))
-    place(fx, riser(1.4, 300, 6000), 1.0, 0.45)
-    for t0 in (0.5, 1.0, 1.5, 2.0):
-        place(drums, kick(0.3, 0.8), t0, 0.55)
 
     # --- INTERVIEW BED (2.4 - 38.4): half-time groove, pads, plucks; ducked later under the voice
     for b in range(1, 20):
         t0 = b * 2.0
-        if t0 + 2 > 38.4 + 0.01:
+        if t0 + 2 > OUT - 1.6 + 0.01:
             break
         root, ch = CHORDS[b % 4]
         place(pads, supersaw([note(n) for n in ch], 2.05, cutoff=1800 + 600 * (b % 2)) * adsr(int(2.05 * SR), 0.25, 0.3, 0.8, 0.4)[:, None], t0, 0.30)
@@ -275,23 +288,22 @@ def build_music():
                 place(drums, hat(), t0 + k * beat + h * beat / 2 + 0.25 * beat * (h == 1), 0.10 + 0.05 * h, pan=0.3)
 
     # --- BUILD (38.4 - 40.0): snare roll + riser
-    place(fx, riser(1.6, 200, 9000), 38.4, 0.55)
-    tt = 38.4
+    tt = OUT - 1.6
     k = 0
-    while tt < 40.0:
-        place(drums, clap(0.12), tt, 0.10 + 0.25 * (tt - 38.4) / 1.6)
-        tt += beat / (2 if tt < 39.2 else 4)
+    while tt < OUT:
+        place(drums, clap(0.12), tt, 0.08 + 0.18 * (tt - (OUT - 1.6)) / 1.6)
+        tt += beat / (2 if tt < OUT - 0.8 else 4)
 
-    # --- DROP / WEBSITE MONTAGE (40.0 - 47.5)
-    for b in range(20, 24):
+    # --- DROP / WEBSITE MONTAGE (grid 40.0 - 47.5)
+    for b in range(int(OUT / 2), int(HILL0 / 2) + 1):
         t0 = b * 2.0
-        dur = min(2.0, T.HILL[0] - t0)
+        dur = min(2.0, HILL0 - t0)
         if dur <= 0:
             break
         root, ch = CHORDS[b % 4]
         for k in range(4):
             tb = t0 + k * beat
-            if tb >= T.HILL[0]:
+            if tb >= HILL0:
                 break
             place(drums, kick(0.45, 1.1), tb, 0.85)
             if k in (1, 3):
@@ -304,62 +316,31 @@ def build_music():
         for k in range(int(dur / (beat / 4))):  # 16th lead arp
             f = note(ch[[0, 1, 2, 3, 2, 1][k % 6]] + 24)
             place(mus, pluck(f, 0.14, 5000), t0 + k * beat / 4, 0.10, pan=0.6 * np.sin(k * 1.3))
-    for t0 in (T.CALC[0], T.HOW[0], T.HOW[0] + 1.0, T.HOW[0] + 2.0):
-        place(fx, boom(1.0), t0, 0.35)
 
-    # --- HILLTOP (47.5 - 52.0): breakdown, wide pad, riser, boom on the logo
+    # --- HILLTOP: breakdown, wide pad; a single soft kick when the logo lands
     root, ch = CHORDS[0]
     wide = supersaw([note(n) for n in ch] + [note(ch[0] + 12)], 4.6, cutoff=2600)
     wide *= adsr(len(wide), 0.6, 0.5, 0.9, 1.2)[:, None]
-    place(pads, wide, T.HILL[0], 0.5)
-    place(mus, sub(note(root - 24), 4.4), T.HILL[0], 0.35)
-    place(fx, riser(T.HILL_HIT - T.HILL[0] - 0.3, 150, 8000), T.HILL[0] + 0.3, 0.5)
-    place(fx, boom(3.0), T.HILL_HIT, 1.0)
-    place(drums, kick(0.8, 1.4), T.HILL_HIT, 0.9)
-    for i, n in enumerate([81, 84, 88, 93]):
-        place(fx, ping(note(n), 2.0), T.HILL_HIT + 0.05 + i * 0.09, 0.12, pan=-0.4 + i * 0.27)
+    place(pads, wide, HILL0, 0.5)
+    place(mus, sub(note(root - 24), 4.4), HILL0, 0.35)
+    place(drums, kick(0.8, 1.0), HILL_HIT, 0.6)
 
-    # --- END (52.0 - 55.5): clean bell chord and tail
-    for i, n in enumerate([69, 72, 76, 81]):
-        place(fx, ping(note(n), 3.2), T.END[0] + 0.02 * i, 0.16, pan=-0.3 + 0.2 * i)
-    place(pads, supersaw([note(n) for n in [57, 64, 69, 72]], 3.4, cutoff=1500) * adsr(int(3.4 * SR), 0.05, 0.5, 0.6, 2.5)[:, None], T.END[0], 0.3)
-    place(fx, boom(2.0), T.END[0], 0.4)
+    # --- END: warm closing chord with a long tail
+    place(pads, supersaw([note(n) for n in [57, 64, 69, 72]], 3.6, cutoff=1500) * adsr(int(3.6 * SR), 0.08, 0.5, 0.6, 2.5)[:, None], END0, 0.34)
+    place(mus, sub(note(45 - 12), 3.0), END0, 0.25)
 
     ir = reverb_ir(2.4)
     pads_w = pads + convolve(pads, ir) * 0.35
     mus_w = mus + convolve(mus, ir) * 0.25
-    fx_w = fx + convolve(fx, ir) * 0.3
     # sidechain pump from the kick onto pads/bass (simple envelope follower)
     kenv = np.abs(drums[:, 0])
     kenv = signal.lfilter([1 - np.exp(-1 / (0.06 * SR))], [1, -np.exp(-1 / (0.06 * SR))], kenv)
     pump = 1 - np.clip(kenv * 1.2, 0, 0.55)
-    music = (pads_w + mus_w) * pump[:, None] + drums + fx_w
+    music = (pads_w + mus_w) * pump[:, None] + drums
     music = hp(music, 28)
+    music = music[int(SH * SR):int(SH * SR) + N]  # trim to the picture
+    fi = int(0.6 * SR); music[:fi] *= np.linspace(0, 1, fi)[:, None]
     return music
-
-
-# ------------------------------------------------------------------ SFX tied to picture
-def build_sfx():
-    s = np.zeros((N, 2))
-    for t0 in T.transitions():
-        if T.HILL[0] - 0.01 < t0 < T.END[1]:
-            continue  # the hilltop/end have their own score hits
-        place(s, whoosh(0.55, 400, 6000), t0 - 0.30, 0.35)
-    # map: travel whoosh and two location markers
-    m0, m1 = T.BROLL[0][1], T.BROLL[0][2]
-    place(s, ping(1320, 0.9), m0 + 0.55, 0.18)              # Philippines marker
-    place(s, whoosh(1.4, 200, 3000), m0 + 0.9, 0.3)          # route travel
-    place(s, ping(1760, 0.9), m0 + 2.35, 0.2)               # Sydney marker
-    # typography impacts for the kinetic words
-    for _, a, b in T.KINETIC:
-        place(s, boom(0.8), a, 0.35)
-        place(s, glitch(), a, 0.4)
-    # small tick for each How-It-Works step
-    for i in range(3):
-        place(s, glitch(0.08), T.HOW[0] + i * 1.0, 0.35)
-    # logo shimmer on the white end slide
-    place(s, whoosh(1.2, 2000, 12000, rev=True), T.END[0] - 1.2 + 0.05, 0.25)
-    return s
 
 
 def duck_env(voice):
@@ -387,25 +368,23 @@ if __name__ == '__main__':
     os.makedirs(B(), exist_ok=True)
     voice = build_voice(); print('voice', lufs(voice))
     music = build_music(); print('music raw', lufs(music))
-    sfx = build_sfx()
     # music bed level: speech sections sit under the voice, outro comes up (but not a jump)
     tt = np.arange(N) / SR
-    bed = np.where(tt < T.SPEECH_OFF, 1.15, np.where(tt < 38.4, 0.55, 0.74))
+    bed = np.where(tt < T.OUTRO - 1.6, 0.55, 0.74)
     bed = signal.lfilter([1 - np.exp(-1 / (0.3 * SR))], [1, -np.exp(-1 / (0.3 * SR))], bed)
     music *= 10 ** ((-16 - lufs(music)) / 20)
     g = duck_env(voice) * bed
-    sfx_g = np.where(np.abs(voice[:, 0]) > 0, 1, 1) * g / bed  # SFX follow the ducking fully
-    bg = music * g[:, None] + sfx * (0.25 + 0.75 * sfx_g[:, None]) * 0.7
+    bg = music * g[:, None]
     mix = voice + bg
-    for a, b in [(3, 6), (8, 9.5), (10, 14), (20, 24), (30, 34), (36, 38)]:
+    for a, b in [(1, 4), (6, 7.5), (8, 12), (18, 22), (28, 32), (33, 36)]:
         i, j = int(a * SR), int(b * SR)
         print(f"{a:>4}-{b:<4} voice-to-background margin {20*np.log10(np.std(voice[i:j]) / np.std(bg[i:j])):5.1f} dB")
-    for a, b in [(0, 2.4), (5, 38), (40, 47.5), (47.5, 52), (52, 55)]:
+    for a, b in [(0, 36), (T.OUTRO, T.HILL[0]), T.HILL, T.END]:
         print(f"{a:>4}-{b:<4} LUFS {lufs(mix[int(a*SR):int(b*SR)]):6.1f}")
     # final fade, static gain to -14 LUFS, true-peak limiter (no dynamic loudness riding)
     fo = int(1.2 * SR); mix[-fo:] *= np.linspace(1, 0, fo)[:, None] ** 2
     mix *= 10 ** ((-14 - lufs(mix)) / 20)
-    save(B('voice.wav'), voice); save(B('music.wav'), music); save(B('sfx.wav'), sfx)
+    save(B('voice.wav'), voice); save(B('music.wav'), music)
     save(B('mix_pre.wav'), mix * 0.5)
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', B('mix_pre.wav'), '-af',
                     'volume=6.0206dB,alimiter=limit=0.891:attack=2:release=80:level=false',
