@@ -22,7 +22,7 @@ IDX = [  # (display text, first spoken-word index, last spoken-word index)
  ("That's right!",14,15),("[Morisset Mowers]",16,17),("is bringing you",18,20),("some [massive]",21,22),("[deals!]",23,23),
  ("Get [$1,000 off]",24,27),("Cub Cadet",28,29),("and Gravely",30,31),("zero-turn mowers.",32,34),
  ("Save [$500]",35,36),("on selected",37,38),("Cub Cadet,",39,40),("Gravely and",41,42),("Victa ride-on",43,45),("mowers.",46,46),
- ("Plus, get",47,48),("[10% off]",49,51),("small goods,",52,53),("mowers,",54,54),("trimmers",55,55),("and chainsaws!",56,57),
+ ("Plus, get",47,48),("[10% off]",49,51),("small goods mowers,",52,54),("trimmers",55,55),("and chainsaws!",56,57),
  ("The sale runs",58,60),("from [November]",61,62),("[27th to 30th,]",63,65),("with limited",66,67),("floor stock",68,69),("available.",70,70),
  ("[Don't miss out!]",71,73),("Head to",74,75),("[Morisset Mowers]",76,77),("and grab your",78,80),("[Black Friday]",81,82),("[sale!]",83,83),
 ]
